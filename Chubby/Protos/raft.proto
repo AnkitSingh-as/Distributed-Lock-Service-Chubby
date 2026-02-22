@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package raft;
+
+option csharp_namespace = "Raft.Protos";
+
+// The Raft service definition for peer-to-peer communication.
+service RaftServer {
+  // Invoked by leader to replicate log entries; also used as heartbeat.
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
+  // Invoked by candidates to gather votes.
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+}
+
+// Represents a single command in the log.
+message LogEntry {
+  // The term when this entry was received by the leader.
+  int32 term = 1;
+  // The command for the state machine. This will be one of the Chubby operations.
+  bytes command = 2;
+  // The index of this entry in the log.  
+  int32 index = 3;
+}
+
+// The request message for the AppendEntries RPC.
+message AppendEntriesRequest {
+  // Leader's term.
+  int32 term = 1;
+  // So follower can redirect clients.
+  int32 leader_id = 2;
+  // Index of log entry immediately preceding new ones.
+  int32 prev_log_index = 3;
+  // Term of prev_log_index entry.
+  int32 prev_log_term = 4;
+  // Log entries to store (empty for heartbeat).
+  repeated LogEntry entries = 5;
+  // Leader's commit index.
+  int32 leader_commit = 6;
+}
+
+// The response message for the AppendEntries RPC.
+message AppendEntriesResponse {
+  // Current term, for leader to update itself.
+  int32 term = 1;
+  // True if follower contained entry matching prev_log_index and prev_log_term.
+  bool success = 2;
+}
+
+// The request message for the RequestVote RPC.
+message RequestVoteRequest {
+  // Candidate's term.
+  int32 term = 1;
+  // Candidate requesting vote.
+  string candidate_id = 2;
+  // Index of candidate's last log entry.
+  int32 last_log_index = 3;
+  // Term of candidate's last log entry.
+  int32 last_log_term = 4;
+}
+
+// The response message for the RequestVote RPC.
+message RequestVoteResponse {
+  // Current term, for candidate to update itself.
+  int32 term = 1;
+  // True means candidate received vote.
+  bool vote_granted = 2;
+}
