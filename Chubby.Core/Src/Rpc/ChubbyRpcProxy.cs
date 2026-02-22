@@ -20,11 +20,11 @@ namespace Chubby.Core.Rpc;
 public class ChubbyRpcProxy
 {
     private readonly ChubbyCore _chubby;
-    private readonly NodeEnvelope _nodeEnvelope;
+    private readonly INodeEnvelope _nodeEnvelope;
     private readonly ChubbyConfig _chubbyConfig;
     private readonly CheckDigitCalculator _checkDigitCalculator;
     public SessionScheduler SessionScheduler { get; private set; }
-    public ChubbyRpcProxy(ChubbyCore chubby, NodeEnvelope nodeEnvelope, ChubbyConfig config)
+    public ChubbyRpcProxy(ChubbyCore chubby, INodeEnvelope nodeEnvelope, ChubbyConfig config)
     {
         _chubby = chubby;
         _nodeEnvelope = nodeEnvelope;
@@ -57,13 +57,12 @@ public class ChubbyRpcProxy
 
     public int CurrentEpochNumber()
     {
-        // TODO:  an external user can change my term, which is problematic and need to figure out the solution fo this, also LOD.
-        return _nodeEnvelope.Node.State.CurrentTerm;
+        return _nodeEnvelope.CurrentEpochNumber();
     }
 
     public bool IsLeader()
     {
-        return _nodeEnvelope.Node.CurrentRole == Role.Leader;
+        return _nodeEnvelope.IsLeader();
     }
 
     public async Task<OpenResponse> Open(OpenRequest request)

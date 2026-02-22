@@ -18,6 +18,10 @@ namespace Raft.Tests.Fakes
             ActivityTracker = new ActivityTracker(clock);
         }
 
+        public event Action<Role, Role>? RoleChanged;
+        public event Action? AllEntriesCommittedOnTransitionToLeader;
+
+
         public void SignalAllReplicators()
         {
             SignalAllReplicatorsCalls++;
@@ -38,5 +42,19 @@ namespace Raft.Tests.Fakes
 
         }
 
+        public int CurrentEpochNumber()
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool IsLeader()
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<object?> WriteAsync(byte[] command)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

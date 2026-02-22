@@ -246,4 +246,15 @@ public class NodeEnvelope : IServer, INodeEnvelope
         electionTimerCts.Dispose();
         heartbeatCts.Dispose();
     }
+
+    public int CurrentEpochNumber()
+    {
+        return Node.State.CurrentTerm;
+    }
+
+    public bool IsLeader()
+    {
+        return Node.CurrentRole == Role.Leader;
+    }
+
 }

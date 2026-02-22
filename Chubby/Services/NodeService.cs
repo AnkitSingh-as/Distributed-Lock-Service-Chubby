@@ -6,11 +6,11 @@ namespace Chubby.Services;
 
 public class RaftService : RaftServer.RaftServerBase
 {
-    private readonly NodeEnvelope nodeEnvelope;
+    private readonly IServer server;
 
-    public RaftService(NodeEnvelope nodeEnvelope)
+    public RaftService(IServer nodeEnvelope)
     {
-        this.nodeEnvelope = nodeEnvelope;
+        this.server = nodeEnvelope;
     }
 
     public override async Task<AppendEntriesResponse> AppendEntries(AppendEntriesRequest request, ServerCallContext context)
@@ -22,7 +22,7 @@ public class RaftService : RaftServer.RaftServerBase
             Index = e.Index
         }).ToList();
 
-        var response = await nodeEnvelope.AppendEntries(request.Term, request.LeaderId, request.PrevLogIndex, request.PrevLogTerm, domainLogs, request.LeaderCommit);
+        var response = await server.AppendEntries(request.Term, request.LeaderId, request.PrevLogIndex, request.PrevLogTerm, domainLogs, request.LeaderCommit);
 
         return new AppendEntriesResponse
         {
@@ -38,7 +38,7 @@ public class RaftService : RaftServer.RaftServerBase
             throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Invalid CandidateId format: {request.CandidateId}"));
         }
 
-        var response = await nodeEnvelope.RequestVote(request.Term, candidateId, request.LastLogIndex, request.LastLogTerm);
+        var response = await server.RequestVote(request.Term, candidateId, request.LastLogIndex, request.LastLogTerm);
 
         return new Raft.Protos.RequestVoteResponse
         {

@@ -3,11 +3,11 @@ using Chubby.Core.Rpc;
 
 public class ChubbyRaftOrchestrator
 {
-    private readonly NodeEnvelope _nodeEnvelope;
+    private readonly INodeEnvelope _nodeEnvelope;
     private readonly ChubbyRpcProxy _chubbyRpcProxy;
     private volatile TaskCompletionSource<bool> _leaderReadyTcs;
 
-    public ChubbyRaftOrchestrator(NodeEnvelope nodeEnvelope, ChubbyRpcProxy chubbyCore)
+    public ChubbyRaftOrchestrator(INodeEnvelope nodeEnvelope, ChubbyRpcProxy chubbyCore)
     {
         _nodeEnvelope = nodeEnvelope;
         _chubbyRpcProxy = chubbyCore;

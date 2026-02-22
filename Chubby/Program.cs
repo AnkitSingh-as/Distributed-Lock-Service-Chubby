@@ -71,6 +71,8 @@ internal class Program
         // The NodeEnvelope will drive the state machine by calling its Apply() method for committed log entries.
         var nodeEnvelope = await NodeEnvelope.CreateAsync(new InMemoryDataSource(), raftConfig, nodeId, chubbyStateMachine, new SystemRaftClock(), loggerFactory);
         builder.Services.AddSingleton(nodeEnvelope);
+        builder.Services.AddSingleton<INodeEnvelope>(nodeEnvelope);
+        builder.Services.AddSingleton<IServer>(nodeEnvelope);
         var chubbyRpcProxy = new ChubbyRpcProxy(chubbyStateMachine, nodeEnvelope, chubbyConfig);
         var chubbyRaftOrchestrator = new ChubbyRaftOrchestrator(nodeEnvelope, chubbyRpcProxy);
         builder.Services.AddSingleton<ICheckDigitStrategy, HmacCheckDigitStrategy>();
