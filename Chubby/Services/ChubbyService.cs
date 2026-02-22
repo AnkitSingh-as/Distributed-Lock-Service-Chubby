@@ -3,6 +3,7 @@ using Chubby.Protos;
 using Chubby.Core.Rpc;
 using Proto = Chubby.Protos;
 using Model = Chubby.Core.Model;
+using CoreEvents = Chubby.Core.Events;
 
 
 namespace Chubby.Services
@@ -11,7 +12,7 @@ namespace Chubby.Services
     {
         private readonly ChubbyRpcProxy _chubbyRpcProxy;
 
-        private static Model.ClientHandle ToModelClientHandle(Proto.ClientHandle handle)
+        private static Model.ClientHandle ToModelClientHandle(ClientHandle handle)
         {
             return new Model.ClientHandle
             {
@@ -19,15 +20,15 @@ namespace Chubby.Services
                 Path = handle.Path,
                 InstanceNumber = handle.InstanceNumber,
                 Permission = (Core.Rpc.Permission)handle.Permission,
-                SubscribedEventsMask = (Core.Events.HandleEventInterest)handle.SubscribedEventsMask,
+                SubscribedEventsMask = (CoreEvents.HandleEventInterest)handle.SubscribedEventsMask,
                 CheckDigit = handle.CheckDigit,
                 SessionId = handle.SessionId
             };
         }
 
-        private static Proto.ClientHandle ToProtoClientHandle(Model.ClientHandle handle)
+        private static ClientHandle ToProtoClientHandle(Model.ClientHandle handle)
         {
-            return new Proto.ClientHandle
+            return new ClientHandle
             {
                 HandleId = handle.HandleId,
                 Path = handle.Path,
@@ -37,6 +38,21 @@ namespace Chubby.Services
                 CheckDigit = handle.CheckDigit,
                 SessionId = handle.SessionId
             };
+        }
+
+        private static Event ToProtoEvent(CoreEvents.Event @event)
+        {
+            var eventType = @event switch
+            {
+                CoreEvents.LockAcquiredEvent => EventType.LockAcquired,
+                CoreEvents.MasterFailOverEvent => EventType.MasterFailOver,
+                CoreEvents.InvalidHandleAndLockEvent => EventType.InvalidHandleAndLock,
+                CoreEvents.ConflictingLockRequestEvent => EventType.ConflictingLockRequest,
+                CoreEvents.FileContentsModifiedEvent => EventType.FileContentsModified,
+                _ => EventType.None
+            };
+
+            return new Event { Type = eventType };
         }
 
         public ChubbyService(ChubbyRpcProxy chubbyRpcProxy)
@@ -54,17 +70,32 @@ namespace Chubby.Services
             };
         }
 
-        public override async Task KeepAlive(IAsyncStreamReader<Proto.KeepAliveRequest> requestStream, IServerStreamWriter<Proto.KeepAliveResponse> responseStream, ServerCallContext context)
+        public override async Task KeepAlive(IAsyncStreamReader<KeepAliveRequest> requestStream, IServerStreamWriter<Proto.KeepAliveResponse> responseStream, ServerCallContext context)
         {
             // Read from the client's request stream, Keep in mind that the loop ends when the client closes the stream.
             await foreach (var request in requestStream.ReadAllAsync(context.CancellationToken))
             {
                 var keepAliveResult = await _chubbyRpcProxy.KeepAlive(request.SessionId);
-                var response = new Proto.KeepAliveResponse
+                var response = new Proto.KeepAliveResponse();
+                switch (keepAliveResult)
                 {
-                    // TODO: Map the 'keepAliveResult' to the 'response' message.
-                    // if (keepAliveResult.HasEvents) { response.EventAvailable = ...; }
-                };
+                    case Core.Rpc.LeaseAboutToExpire leaseAboutToExpire:
+                        response.LeaseAboutToExpire = new Proto.LeaseAboutToExpire
+                        {
+                            LeaseTimeout = leaseAboutToExpire.LeaseTimeout
+                        };
+                        break;
+                    case Core.Rpc.EventAvailable eventAvailable:
+                        response.EventAvailable = new Proto.EventAvailable
+                        {};
+                        response.EventAvailable.Events.AddRange(eventAvailable.Events.Select(ToProtoEvent));
+                        break;
+                    case Core.Rpc.CacheInvalidation:
+                        response.CacheInvalidation = new Proto.CacheInvalidation();
+                        break;
+                    default:
+                        break;
+                }
                 await responseStream.WriteAsync(response);
             }
         }
@@ -76,7 +107,7 @@ namespace Chubby.Services
                 SessionId = request.SessionId,
                 Path = request.Path,
                 Intent = (Core.Rpc.Intent)request.Intent,
-                SubscribedEventsMask = (Core.Events.HandleEventInterest)request.SubscribedEventsMask,
+                SubscribedEventsMask = (CoreEvents.HandleEventInterest)request.SubscribedEventsMask,
                 LockDelay = request.LockDelay,
                 Create = request.Create != null ? new Core.Rpc.CreateRequestPayload
                 {

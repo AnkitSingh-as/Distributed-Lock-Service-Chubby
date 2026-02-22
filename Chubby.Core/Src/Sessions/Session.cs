@@ -23,7 +23,7 @@ public class Session
         UpdateLastActivity();
     }
 
-    private  bool _isWaitingForAcknowledgmentForFailoverEvent = false;
+    private bool _isWaitingForAcknowledgmentForFailoverEvent = false;
 
     public Channel<Event> channel { get; private set; } = Channel.CreateUnbounded<Event>();
 
@@ -45,6 +45,7 @@ public class Session
     // refactor this to return keepAlive return type instead of object.
     public async Task<KeepAliveResponse> KeepAlive()
     {
+        _isWaitingForAcknowledgmentForFailoverEvent = false;
         var waitToReadTask = channel.Reader.WaitToReadAsync(cts.Token).AsTask();
         var leaseTimeoutTask = Task.Delay(leaseTimeout - threshold, cts.Token);
         var completedTask = await Task.WhenAny(waitToReadTask, leaseTimeoutTask);
@@ -72,13 +73,9 @@ public class Session
                 {
                     events.Add(ev);
                 }
-                if(events.FirstOrDefault() is MasterFailOverEvent)
+                if (events.FirstOrDefault() is MasterFailOverEvent)
                 {
                     _isWaitingForAcknowledgmentForFailoverEvent = true;
-                }
-                else
-                {
-                    _isWaitingForAcknowledgmentForFailoverEvent = false;
                 }
 
                 return new EventAvailable { Events = events };
