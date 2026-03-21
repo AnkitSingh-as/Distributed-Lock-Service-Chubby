@@ -1,15 +1,17 @@
 using Chubby.Protos;
 using Google.Protobuf;
 using Grpc.Core;
+using Microsoft.Extensions.Options;
 
 public class ExampleService
 {
-    private const string ClientName = "TestClient";
-    private IChubby _chubby;
+    private readonly IChubby _chubby;
+    private readonly string _clientName;
 
-    public ExampleService(IChubby chubby)
+    public ExampleService(IChubby chubby, IOptions<ExampleClientOptions> options)
     {
         _chubby = chubby;
+        _clientName = options.Value.Name;
     }
 
     public async Task DoSomeProcessing()
@@ -17,7 +19,7 @@ public class ExampleService
         Console.WriteLine(" I am going to do acquire a lock using chubby");
         var res = await _chubby.CreateSessionAsync(new CreateSessionRequest()
         {
-            Client = new Client { Name = ClientName }
+            Client = new Client { Name = _clientName }
         });
 
         var headers = new Metadata
@@ -33,9 +35,9 @@ public class ExampleService
             {
                 Content = ByteString.CopyFromUtf8("Initial Content for example/lock"),
                 IsEphemeral = false,
-                WriteAcl = { ClientName },
-                ReadAcl = { ClientName },
-                ChangeAcl = { ClientName }
+                WriteAcl = { _clientName },
+                ReadAcl = { _clientName },
+                ChangeAcl = { _clientName }
             },
         }, headers);
 
