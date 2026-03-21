@@ -41,22 +41,11 @@ public class OpenCommand : BaseCommand
     public CreateRequestPayload? Create { get; set; }
 }
 
-public class CreateRequestPayload
-{
-    public required byte[] Content { get; set; }
-    public bool IsEphemeral { get; set; }
-    public required string[] WriteAcl { get; set; }
-    public required string[] ReadAcl { get; set; }
-    public required string[] ChangeAcl { get; set; }
-}
 
 
 
 // if session goes lock goes, if session goes ephemeral nodes go...
-
 // handles have the power to close themsevles, and closing a handle means a lock has to go..
-
-
 // ephemeral nodes can be tracked by session
 
 

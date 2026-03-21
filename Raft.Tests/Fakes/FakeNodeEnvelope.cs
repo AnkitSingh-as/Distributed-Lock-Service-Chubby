@@ -56,5 +56,11 @@ namespace Raft.Tests.Fakes
         {
             throw new NotImplementedException();
         }
+
+        public string? GetLeaderAddress()
+        {
+            throw new NotImplementedException();
+        }
+
     }
 }

@@ -19,6 +19,8 @@ public class NodeEnvelope : IServer, INodeEnvelope
     public event Action? AllEntriesCommittedOnTransitionToLeader;
     public event Action<Role, Role>? RoleChanged;
     private bool onAllEntriesCommittedOnTransitionToLeaderEventGenerated = false;
+    private string? CurrentLeaderAddress { get; set; }
+
 
     private readonly IStateMachine _stateMachine;
     public ActivityTracker ActivityTracker { get; }
@@ -142,6 +144,10 @@ public class NodeEnvelope : IServer, INodeEnvelope
             _logger.LogTrace("Node {NodeId} waiting for AppendEntries event to be acknowledged.", Node.Id);
             await result.Ack.Task;
         }
+        if (result.Success)
+        {
+            CurrentLeaderAddress = _config.Peers[leaderId];
+        }
         return result;
     }
 
@@ -169,8 +175,9 @@ public class NodeEnvelope : IServer, INodeEnvelope
         return await tcs.Task;
     }
 
-    internal async Task<AppendEntryResponse> AppendEntriesAsync(int followerId, AppendEntriesArgs args)
+    internal async Task<AppendEntryResponse> SendAppendEntriesAsync(int followerId, AppendEntriesArgs args)
     {
+        CurrentLeaderAddress = _config.Peers[args.LeaderId];
         if (Peers.TryGetValue(followerId, out var peer))
         {
             _logger.LogTrace("Node {NodeId} sending AppendEntries RPC to Peer {PeerId}", Node.Id, followerId);
@@ -257,4 +264,8 @@ public class NodeEnvelope : IServer, INodeEnvelope
         return Node.CurrentRole == Role.Leader;
     }
 
+    public string? GetLeaderAddress()
+    {
+        return CurrentLeaderAddress;
+    }
 }

@@ -7,5 +7,4 @@ public class OpenResponse
     public bool Created { get; set; }
     public required ClientHandle Handle { get; set; }
 
-
 }

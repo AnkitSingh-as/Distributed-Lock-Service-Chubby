@@ -14,4 +14,6 @@ public interface INodeEnvelope
     int CurrentEpochNumber();
     bool IsLeader();
     Task<object?> WriteAsync(byte[] command);
+    string? GetLeaderAddress();
+
 }

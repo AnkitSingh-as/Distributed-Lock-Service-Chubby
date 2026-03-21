@@ -65,6 +65,11 @@ public class ChubbyRpcProxy
         return _nodeEnvelope.IsLeader();
     }
 
+    public string? GetLeaderAddress()
+    {
+        return _nodeEnvelope.GetLeaderAddress();
+    }
+
     public async Task<OpenResponse> Open(OpenRequest request)
     {
         bool nodeCreated = false;

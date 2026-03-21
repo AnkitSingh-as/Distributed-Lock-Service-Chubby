@@ -1,0 +1,292 @@
+syntax = "proto3";
+
+package chubby;
+
+import "google/protobuf/wrappers.proto";
+
+option csharp_namespace = "Chubby.Protos";
+
+// The IServer interface, representing the Chubby service.
+// This service provides distributed locking and small file storage.
+service Server {
+  // Creates a new client session.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+
+  // A keep-alive mechanism for clients to maintain their session.
+  rpc KeepAlive(stream KeepAliveRequest) returns (stream KeepAliveResponse);
+
+  // Opens a handle to a node (file/directory).
+  rpc Open(OpenRequest) returns (OpenResponse);
+
+  // Closes a handle.
+  rpc Close(CloseRequest) returns (CloseResponse);
+
+  // Acquires a lock on a node via its handle.
+  rpc Acquire(AcquireRequest) returns (AcquireResponse);
+
+  // Releases a lock on a node via its handle.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+
+  // Reads the content of a node.
+  rpc GetContentsAndStat(GetContentsAndStatRequest) returns (GetContentsAndStatResponse);
+
+  // Gets the metadata (stat) for a node.
+  rpc GetStat(GetStatRequest) returns (GetStatResponse);
+
+  rpc ReadDir(ReadDirRequest) returns (ReadDirResponse);
+
+  rpc SetContents(SetContentsRequest) returns (SetContentsResponse);
+
+  rpc SetAcl(SetAclRequest) returns (SetAclResponse);
+  
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  rpc GetSequencer(GetSequencerRequest) returns (GetSequencerResponse);
+
+  rpc CheckSequencer(CheckSequencerRequest) returns (CheckSequencerResponse);
+}
+
+enum EventType {
+    EVENT_TYPE_NONE = 0;
+    EVENT_TYPE_LOCK_ACQUIRED = 1;
+    EVENT_TYPE_MASTER_FAIL_OVER = 2;
+    EVENT_TYPE_INVALID_HANDLE_AND_LOCK = 3;
+    EVENT_TYPE_CONFLICTING_LOCK_REQUEST = 4;
+    EVENT_TYPE_FILE_CONTENTS_MODIFIED = 5;
+}
+
+message Event {
+    EventType type = 1;
+}
+
+
+// Enum for lock modes when opening a handle.
+enum LockType {
+  // Default value, should not be used.
+  LOCK_TYPE_UNSPECIFIED = 0;
+  // Shared (read) lock. Multiple clients can hold a shared lock.
+  SHARED = 1;
+  // Exclusive (write) lock. Only one client can hold an exclusive lock.
+  EXCLUSIVE = 2;
+}
+
+enum Permission {
+  NONE = 0;
+  READ = 1;
+  WRITE = 2;
+  CHANGE_ACL = 4;
+}
+
+enum Intent {
+  READ_INTENT = 0;
+  WRITE_INTENT = 1;
+  SHARED_LOCK = 2;
+  EXCLUSIVE_LOCK = 3;
+  CHANGE_ACL_INTENT = 4;
+}
+
+message Client {
+    string name = 1;
+}
+
+// Common status codes for responses.
+enum StatusCode {
+  // The operation completed successfully.
+  OK = 0;
+  // The requested resource was not found.
+  NOT_FOUND = 1;
+  // The caller does not have permission to execute the specified operation.
+  PERMISSION_DENIED = 2;
+  // Another client holds a conflicting lock.
+  LOCK_HELD = 3;
+  // The client specified an invalid argument.
+  INVALID_ARGUMENT = 4;
+  // An internal server error occurred.
+  INTERNAL_ERROR = 5;
+  // The session has expired.
+  SESSION_EXPIRED = 6;
+}
+
+// Represents a response status, included in all responses.
+message Status {
+  StatusCode code = 1;
+  string message = 2;
+}
+
+// Request to create a session.
+message CreateSessionRequest {
+  // A client-provided identifier for debugging/logging.
+  Client client = 1;
+}
+
+// Response for creating a session.
+message CreateSessionResponse {
+  string session_id = 1;
+  int32 epoch_number = 2;
+}
+
+// Request for a client to signal it's still alive.
+message KeepAliveRequest {
+  // The client's session identifier.
+  string session_id = 1;
+}
+
+// Response for a keep-alive.
+message KeepAliveResponse {
+    oneof reason {
+        EventAvailable event_available = 1;
+        LeaseAboutToExpire lease_about_to_expire = 2;
+        CacheInvalidation cache_invalidation = 3;
+    }
+}
+
+message EventAvailable {
+    repeated Event events = 1;
+}
+
+message LeaseAboutToExpire {
+    int32 lease_timeout = 1;
+}
+
+message CacheInvalidation {}
+
+
+message CreateRequestPayload {
+    bytes content = 1;
+    bool is_ephemeral = 2;
+    repeated string write_acl = 3;
+    repeated string read_acl = 4;
+    repeated string change_acl = 5;
+}
+
+// Request to open a handle to a node.
+message OpenRequest {
+  string session_id = 1;
+  string path = 2;
+  Intent intent = 3;
+  repeated Event events = 4 [deprecated = true];
+  google.protobuf.Int64Value lock_delay = 5;
+  CreateRequestPayload create = 6;
+  uint32 subscribed_events_mask = 7;
+}
+
+message ClientHandle {
+    string handle_id = 1;
+    string path = 2;
+    int64 instance_number = 3;
+    Permission permission = 4;
+    google.protobuf.StringValue check_digit = 5;
+    string session_id = 6;
+    uint32 subscribed_events_mask = 7;
+}
+
+// Response for opening a handle.
+message OpenResponse {
+  google.protobuf.BoolValue created = 1;
+  ClientHandle handle = 2;
+}
+
+// Request to close a handle.
+message CloseRequest {
+  ClientHandle handle = 1;
+}
+
+// Response for closing a handle.
+message CloseResponse {
+}
+
+// Request to acquire a lock.
+message AcquireRequest {
+  ClientHandle handle = 1;
+  LockType lock_type = 2;
+}
+
+// Response for acquiring a lock.
+message AcquireResponse {
+}
+
+// Request to release a lock.
+message ReleaseRequest {
+  ClientHandle handle = 1;
+  LockType lock_type = 2;
+}
+
+// Response for releasing a lock.
+message ReleaseResponse {
+}
+
+message GetContentsAndStatRequest {
+    ClientHandle handle = 1;
+}
+
+message Stat {
+    int64 instance_number = 1;
+    int64 content_generation_number = 2;
+    int64 lock_generation_number = 3;
+    int64 acl_generation_number = 4;
+    int64 content_length = 5;
+}
+
+message GetContentsAndStatResponse {
+    bytes content = 1;
+    Stat stat = 2;
+}
+
+message GetStatRequest {
+    ClientHandle handle = 1;
+}
+
+message GetStatResponse {
+    Stat stat = 1;
+}
+
+message ReadDirRequest {
+    ClientHandle handle = 1;
+}
+
+message ReadDirResponse {
+    repeated string children = 1;
+}
+
+message SetContentsRequest {
+    ClientHandle handle = 1;
+    bytes content = 2;
+    google.protobuf.Int64Value content_generation_number = 3;
+}
+
+message SetContentsResponse {
+}
+
+message SetAclRequest {
+    ClientHandle handle = 1;
+    repeated string write_acl = 2;
+    repeated string read_acl = 3;
+    repeated string change_acl = 4;
+}
+
+message SetAclResponse {
+}
+
+message DeleteRequest {
+    ClientHandle handle = 1;
+}
+
+message DeleteResponse {
+}
+
+message GetSequencerRequest {
+    ClientHandle handle = 1;
+}
+
+message GetSequencerResponse {
+    google.protobuf.StringValue sequencer = 1;
+}
+
+message CheckSequencerRequest {
+    ClientHandle handle = 1;
+    string sequencer = 2;
+}
+
+message CheckSequencerResponse {
+    bool valid = 1;
+}

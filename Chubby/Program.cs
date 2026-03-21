@@ -42,10 +42,13 @@ internal class Program
             throw new InvalidOperationException($"Could not find peer URL for nodeId {nodeId} in configuration.");
         }
 
-        builder.Services.AddGrpc(options =>
-        {
-            options.Interceptors.Add<RequestValidationInterceptor>();
-        });
+        builder.Services
+            .AddGrpc()
+            .AddServiceOptions<ChubbyService>(options =>
+            {
+                options.Interceptors.Add<RequestValidationInterceptor>();
+            });
+
 
         var logLevelStr = builder.Configuration["Logging:LogLevel:Default"] ?? "Information";
         if (!Enum.TryParse<LogEventLevel>(logLevelStr, true, out var minLogEventLevel))

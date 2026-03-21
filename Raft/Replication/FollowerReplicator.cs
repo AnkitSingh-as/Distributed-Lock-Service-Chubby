@@ -101,7 +101,7 @@ public sealed class FollowerReplicator : IDisposable
         try
         {
             _logger.LogDebug("Sending AppendEntries. PrevLogIndex: {PrevLogIndex}, PrevLogTerm: {PrevLogTerm}, EntryCount: {EntryCount}", args.PrevLogIndex, args.PrevLogTerm, args.Entries.Count);
-            reply = await _nodeEnvelope.AppendEntriesAsync(_followerId, args);
+            reply = await _nodeEnvelope.SendAppendEntriesAsync(_followerId, args);
             _logger.LogDebug("Received AppendEntries reply. Success: {Success}, Term: {Term}", reply.Success, reply.Term);
         }
         catch (OperationCanceledException)

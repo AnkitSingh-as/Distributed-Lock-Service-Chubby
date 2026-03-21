@@ -4,6 +4,7 @@ using Chubby.Core.Rpc;
 
 public class RequestValidationInterceptor : Interceptor
 {
+    private const string CreateSessionMethodSuffix = "/CreateSession";
     private readonly ChubbyRpcProxy chubbyRpcProxy;
     private readonly ChubbyRaftOrchestrator orchestrator;
 
@@ -19,20 +20,32 @@ public class RequestValidationInterceptor : Interceptor
     {
         if (!chubbyRpcProxy.IsLeader())
         {
-            throw new RpcException(new Grpc.Core.Status(StatusCode.FailedPrecondition, "Not Leader"));
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, chubbyRpcProxy.GetLeaderAddress() ?? "No Leader"));
         }
+
+        if (context.Method.EndsWith(CreateSessionMethodSuffix, StringComparison.Ordinal))
+        {
+            var createSessionTaskToAwaitBeforeProceeding = orchestrator.GetTaskToAwaitBeforeProceeding();
+            if (createSessionTaskToAwaitBeforeProceeding != null)
+            {
+                await createSessionTaskToAwaitBeforeProceeding;
+            }
+
+            return await continuation(request, context);
+        }
+
         var headers = context.RequestHeaders;
 
         var epochEntry = headers.FirstOrDefault(h => h.Key == "epoch");
 
         if (epochEntry == null)
-            throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, "Missing epoch"));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Missing epoch"));
 
         if (!long.TryParse(epochEntry.Value, out var epoch))
-            throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, "Invalid epoch"));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid epoch"));
 
         if (!IsValidEpoch(epoch))
-            throw new RpcException(new Grpc.Core.Status(StatusCode.FailedPrecondition, "Epoch mismatch"));
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, "Epoch mismatch"));
 
         var taskToAwaitBeforeProceeding = orchestrator.GetTaskToAwaitBeforeProceeding();
         if (taskToAwaitBeforeProceeding != null)

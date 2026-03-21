@@ -1,13 +1,37 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
+var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddChubbyClient(builder.Configuration);
+builder.Services.AddSingleton<ExampleService>();
+using var host = builder.Build();
 
-var builder = WebApplication.CreateBuilder(args);
+var exampleService = host.Services.GetRequiredService<ExampleService>();
 
-// Add services to the container.
-builder.Services.AddGrpc();
+Console.WriteLine("Press Enter to call ExampleService.DoSomeProcessing(). Type 'q' and press Enter to quit.");
 
-var app = builder.Build();
+while (true)
+{
+    var input = Console.ReadLine();
+    if (string.Equals(input, "q", StringComparison.OrdinalIgnoreCase))
+    {
+        break;
+    }
 
-// Configure the HTTP request pipeline.
-app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+    if (!string.IsNullOrEmpty(input))
+    {
+        Console.WriteLine("Press Enter to run the command, or type 'q' to quit.");
+        continue;
+    }
 
-app.Run();
+    try
+    {
+        await exampleService.DoSomeProcessing();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Request failed: {ex.Message}");
+    }
+
+    Console.WriteLine("Press Enter to run again, or type 'q' to quit.");
+}
