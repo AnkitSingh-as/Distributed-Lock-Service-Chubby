@@ -47,6 +47,7 @@ internal class Program
             .AddServiceOptions<ChubbyService>(options =>
             {
                 options.Interceptors.Add<RequestValidationInterceptor>();
+                options.Interceptors.Add<ExceptionMappingInterceptor>();
             });
 
 
