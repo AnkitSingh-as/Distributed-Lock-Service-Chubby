@@ -17,6 +17,9 @@ namespace Chubby.Core.Rpc;
 
 // for read requests, do I need to exchange heartbeats before responding, to ensure no other leader has been elected....
 // need to think about reads, to verify leader is sending the response, so that reads are linearizable.
+
+
+// TODO: Need to expose interface or a Extension method to add ChubbyRpcProxy to the application layer.
 public class ChubbyRpcProxy
 {
     private readonly ChubbyCore _chubby;

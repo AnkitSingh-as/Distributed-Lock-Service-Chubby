@@ -1,4 +1,4 @@
-# Chubby
+# Distributed-Lock-Service-Chubby
 
 `Chubby` is a .NET 8 implementation of a Chubby-style distributed lock and small-file service backed by a custom Raft implementation. The solution includes:
 
@@ -8,6 +8,8 @@
 - unit and distributed tests for the Raft layer
 
 The current implementation is geared toward local development and experimentation. It already includes leader election, command replication, leader-aware clients, sessions, locks, ACL-backed handles, node contents, sequencers, and failover notifications.
+
+For a code-oriented walkthrough of the consensus layer, see `RAFT_ARCHITECTURE.md`.
 
 ## Quick Start
 
@@ -27,14 +29,14 @@ The default setup starts a 5-node local cluster on `localhost:5001` through `loc
 
 ## Solution Layout
 
-| Project | Purpose |
-| --- | --- |
-| `Chubby/` | ASP.NET Core gRPC server. Starts a single Chubby node, hosts the Chubby RPCs and the Raft RPCs, and wires the Raft node to the Chubby state machine. |
-| `Chubby.Core/` | Chubby domain model, replicated state machine, session scheduler, RPC proxy, commands, events, and handle validation logic. |
-| `Chubby.Client/` | Client-side abstractions and a sample console app. Includes leader discovery and retry logic for unary RPCs. |
-| `Raft/` | Custom Raft implementation: node state, replication, voting, persistence interfaces, timers, and message contracts. |
-| `Raft.Tests/` | Unit tests for Raft node behavior. |
-| `Raft.Distributed.Tests/` | In-process distributed tests for leader election and quorum scenarios. |
+| Project                   | Purpose                                                                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Chubby/`                 | ASP.NET Core gRPC server. Starts a single Chubby node, hosts the Chubby RPCs and the Raft RPCs, and wires the Raft node to the Chubby state machine. |
+| `Chubby.Core/`            | Chubby domain model, replicated state machine, session scheduler, RPC proxy, commands, events, and handle validation logic.                          |
+| `Chubby.Client/`          | Client-side abstractions and a sample console app. Includes leader discovery and retry logic for unary RPCs.                                         |
+| `Raft/`                   | Custom Raft implementation: node state, replication, voting, persistence interfaces, timers, and message contracts.                                  |
+| `Raft.Tests/`             | Unit tests for Raft node behavior.                                                                                                                   |
+| `Raft.Distributed.Tests/` | In-process distributed tests for leader election and quorum scenarios.                                                                               |
 
 ## Implemented Features
 
@@ -174,7 +176,6 @@ The client library normalizes the configured addresses, picks an initial seed no
 - .NET 8 SDK
 - enough terminals or process runners to start the configured number of nodes
 
-
 ## Building
 
 Build the main projects from the repository root:
@@ -282,6 +283,7 @@ This repository is not a finished production Chubby implementation yet. A few im
 - `Chubby.Client/Core/LeaderDiscoveryInterceptor.cs` - client-side leader redirect and retry behavior
 - `Chubby/Protos/server.proto` - Chubby public RPC contract
 - `Chubby/Protos/raft.proto` - Raft peer RPC contract
+- `RAFT_ARCHITECTURE.md` - implementation-oriented guide to the Raft subsystem
 
 ## Status
 
