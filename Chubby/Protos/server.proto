@@ -62,12 +62,10 @@ message Event {
 
 // Enum for lock modes when opening a handle.
 enum LockType {
-  // Default value, should not be used.
-  LOCK_TYPE_UNSPECIFIED = 0;
   // Shared (read) lock. Multiple clients can hold a shared lock.
-  SHARED = 1;
+  SHARED = 0;
   // Exclusive (write) lock. Only one client can hold an exclusive lock.
-  EXCLUSIVE = 2;
+  EXCLUSIVE = 1;
 }
 
 enum Permission {

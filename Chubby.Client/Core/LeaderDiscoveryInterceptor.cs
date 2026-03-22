@@ -106,8 +106,8 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
                     continue;
                 }
 
-                // Case 2: Server is unavailable or not the leader (but doesn't know who is).
-                if (ex.StatusCode is StatusCode.Unavailable or StatusCode.FailedPrecondition && attempt < maxAttempts)
+                // Case 2: Server is unavailable or explicitly says leader discovery should continue.
+                if (attempt < maxAttempts && IsRetryableLeaderDiscoveryFailure(ex))
                 {
                     _logger.LogWarning(
                         "gRPC call {Method} to {Address} failed with status {StatusCode}. Trying next seed node.",
@@ -127,24 +127,60 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
         throw new RpcException(new Status(StatusCode.Unavailable, "Failed to connect to a leader after multiple attempts."));
     }
 
+    private static bool IsRetryableLeaderDiscoveryFailure(RpcException exception)
+    {
+        if (exception.StatusCode == StatusCode.Unavailable)
+        {
+            return true;
+        }
+
+        return TryGetLeaderDiscoveryDirective(exception, out _, out var shouldRetry)
+               && shouldRetry;
+    }
+
     private static bool TryExtractLeaderAddress(RpcException exception, out string leaderAddress)
     {
+        return TryGetLeaderDiscoveryDirective(exception, out leaderAddress, out _)
+               && !string.IsNullOrEmpty(leaderAddress);
+    }
+
+    private static bool TryGetLeaderDiscoveryDirective(
+        RpcException exception,
+        out string leaderAddress,
+        out bool shouldRetry)
+    {
         leaderAddress = string.Empty;
+        shouldRetry = false;
 
         if (exception.StatusCode != StatusCode.FailedPrecondition)
+        {
             return false;
+        }
 
         var detail = exception.Status.Detail?.Trim();
-        if (string.IsNullOrWhiteSpace(detail) || detail.Equals("No Leader", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(detail))
+        {
             return false;
+        }
+
+        if (detail.Equals("No Leader", StringComparison.OrdinalIgnoreCase))
+        {
+            shouldRetry = true;
+            return true;
+        }
 
         if (!Uri.TryCreate(detail, UriKind.Absolute, out var uri))
+        {
             return false;
+        }
 
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+        {
             return false;
+        }
 
         leaderAddress = detail.TrimEnd('/');
+        shouldRetry = true;
         return true;
     }
 

@@ -16,6 +16,7 @@ using Raft.Protos;
 using Serilog;
 using Serilog.Events;
 using Chubby.Core.Rpc;
+using Microsoft.Extensions.Logging;
 
 internal class Program
 {
@@ -70,14 +71,15 @@ internal class Program
         var loggerFactory = new Microsoft.Extensions.Logging.LoggerFactory().AddSerilog(Serilog.Log.Logger);
 
         builder.Host.UseSerilog();
-
-        var chubbyStateMachine = new ChubbyCore();
+        // TODO: Better handle of creation and addition of chubbyRpcProxy, state machine.
+        var chubbyStateMachine = new ChubbyCore(new Logger<ChubbyCore>(loggerFactory));
+        // TODO: expose extension methods to easily plug raft, without client bothering to implement it.
         // The NodeEnvelope will drive the state machine by calling its Apply() method for committed log entries.
         var nodeEnvelope = await NodeEnvelope.CreateAsync(new InMemoryDataSource(), raftConfig, nodeId, chubbyStateMachine, new SystemRaftClock(), loggerFactory);
         builder.Services.AddSingleton(nodeEnvelope);
         builder.Services.AddSingleton<INodeEnvelope>(nodeEnvelope);
         builder.Services.AddSingleton<IServer>(nodeEnvelope);
-        var chubbyRpcProxy = new ChubbyRpcProxy(chubbyStateMachine, nodeEnvelope, chubbyConfig);
+        var chubbyRpcProxy = new ChubbyRpcProxy(chubbyStateMachine, nodeEnvelope, chubbyConfig, new Logger<ChubbyRpcProxy>(loggerFactory));
         var chubbyRaftOrchestrator = new ChubbyRaftOrchestrator(nodeEnvelope, chubbyRpcProxy);
         builder.Services.AddSingleton<ICheckDigitStrategy, HmacCheckDigitStrategy>();
         builder.Services.AddSingleton(chubbyRpcProxy);

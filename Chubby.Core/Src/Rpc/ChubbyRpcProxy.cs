@@ -26,13 +26,17 @@ public class ChubbyRpcProxy
     private readonly INodeEnvelope _nodeEnvelope;
     private readonly ChubbyConfig _chubbyConfig;
     private readonly CheckDigitCalculator _checkDigitCalculator;
+    private readonly ILogger<ChubbyRpcProxy> _logger;
+
     public SessionScheduler SessionScheduler { get; private set; }
-    public ChubbyRpcProxy(ChubbyCore chubby, INodeEnvelope nodeEnvelope, ChubbyConfig config)
+
+    public ChubbyRpcProxy(ChubbyCore chubby, INodeEnvelope nodeEnvelope, ChubbyConfig config, ILogger<ChubbyRpcProxy> logger)
     {
         _chubby = chubby;
         _nodeEnvelope = nodeEnvelope;
         _chubbyConfig = config;
         _checkDigitCalculator = new CheckDigitCalculator(new HmacCheckDigitStrategy());
+        _logger = logger;
         SessionScheduler = new SessionScheduler(chubby, this, config);
     }
 
@@ -51,7 +55,7 @@ public class ChubbyRpcProxy
             return;
         }
 
-        bool isAllowed = clientPermission.HasFlag(attribute.RequiredPermission);
+        bool isAllowed = clientPermission.HasFlag(attribute.RequiredPermission) || clientPermission >= attribute.RequiredPermission;
         if (!isAllowed)
         {
             throw new InvalidOperationException($"Operation Not Allowed. Requires {attribute.RequiredPermission}, but handle has {clientPermission}.");

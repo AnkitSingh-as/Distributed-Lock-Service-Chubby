@@ -28,7 +28,12 @@ public partial class ChubbyCore : IStateMachine
     public event Action<Session>? SessionClosed;
     public readonly ConcurrentDictionary<string, List<Lock>> nodePathToLockMapping = new();
     public readonly ConcurrentDictionary<Node, List<string>> nodeToSessionMapping = new();
+    private readonly ILogger<ChubbyCore> _logger;
 
+    public ChubbyCore(ILogger<ChubbyCore> logger)
+    {
+        _logger = logger;
+    }
 
     public Session CreateSession(string sessionId, int leaseTimeout, Client client, int threshold)
     {

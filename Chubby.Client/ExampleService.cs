@@ -39,6 +39,7 @@ public class ExampleService
                 ReadAcl = { _clientName },
                 ChangeAcl = { _clientName }
             },
+            Intent = Intent.ExclusiveLock,
         }, headers);
 
 
@@ -48,5 +49,15 @@ public class ExampleService
         }, headers);
 
         Console.WriteLine($"Contents of /example/lock: {contents.Content.ToStringUtf8()}");
+
+        Console.WriteLine("Trying to acquire Lock");
+
+        await _chubby.AcquireAsync(new AcquireRequest()
+        {
+            LockType = LockType.Exclusive,
+            Handle = response.Handle,
+        }, headers);
+
+        Console.WriteLine("Lock Acquired");
     }
 }

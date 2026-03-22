@@ -40,6 +40,16 @@ namespace Chubby.Services
             };
         }
 
+        private static Model.LockType ToModelLockType(Proto.LockType lockType)
+        {
+            return lockType switch
+            {
+                Proto.LockType.Shared => Model.LockType.Shared,
+                Proto.LockType.Exclusive => Model.LockType.Exclusive,
+                _ => throw new ArgumentOutOfRangeException(nameof(lockType), lockType, "Unsupported lock type.")
+            };
+        }
+
         private static Event ToProtoEvent(CoreEvents.Event @event)
         {
             var eventType = @event switch
@@ -135,14 +145,14 @@ namespace Chubby.Services
         public override async Task<AcquireResponse> Acquire(AcquireRequest request, ServerCallContext context)
         {
             var clientHandle = ToModelClientHandle(request.Handle);
-            await _chubbyRpcProxy.AcquireLock(clientHandle, (Model.LockType)request.LockType);
+            await _chubbyRpcProxy.AcquireLock(clientHandle, ToModelLockType(request.LockType));
             return new AcquireResponse();
         }
 
         public override async Task<ReleaseResponse> Release(ReleaseRequest request, ServerCallContext context)
         {
             var clientHandle = ToModelClientHandle(request.Handle);
-            await _chubbyRpcProxy.ReleaseLock(clientHandle, (Model.LockType)request.LockType);
+            await _chubbyRpcProxy.ReleaseLock(clientHandle, ToModelLockType(request.LockType));
             return new ReleaseResponse();
         }
 
