@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 internal sealed class LeaderDiscoveryInterceptor : Interceptor
 {
     private const int MaxLeaderRedirectRetries = 2;
+    private const string LeaderAddressMetadataKey = "leader-address";
+    private const string RetryLeaderDiscoveryMetadataKey = "retry-leader-discovery";
     private readonly LeaderEndpointState _leaderState;
     private readonly LeaderChannelPool _channelPool;
     private readonly ILogger<LeaderDiscoveryInterceptor> _logger;
@@ -43,15 +45,22 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
             static () => { });
     }
 
+    // Add retry logic leader discovery logic here.
     public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
         ClientInterceptorContext<TRequest, TResponse> context,
         AsyncDuplexStreamingCallContinuation<TRequest, TResponse> continuation)
     {
-        var leaderAddress = _leaderState.CurrentLeaderAddress;
-        var callInvoker = _channelPool.GetCallInvoker(leaderAddress);
-        var host = GetHost(leaderAddress);
-
-        return callInvoker.AsyncDuplexStreamingCall(context.Method, host, context.Options);
+        var maxAttempts = _leaderState.SeedNodeCount + MaxLeaderRedirectRetries;
+        return new RetryingDuplexCall<TRequest, TResponse>(
+            () => CreateDuplexCall(context),
+            (exception, failedCall) =>
+            {
+                var previousLeaderAddress = _leaderState.CurrentLeaderAddress;
+                return TryProcessLeaderDiscoveryFailure(exception, context, previousLeaderAddress);
+            },
+            maxAttempts,
+            () => new Status(StatusCode.Unavailable, "Failed to connect to a leader after multiple attempts."))
+            .Create();
     }
 
     private async Task<TResponse> ExecuteWithLeaderRetryAsync<TRequest, TResponse>(
@@ -127,6 +136,49 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
         throw new RpcException(new Status(StatusCode.Unavailable, "Failed to connect to a leader after multiple attempts."));
     }
 
+    private AsyncDuplexStreamingCall<TRequest, TResponse> CreateDuplexCall<TRequest, TResponse>(
+        ClientInterceptorContext<TRequest, TResponse> context)
+        where TRequest : class
+        where TResponse : class
+    {
+        var leaderAddress = _leaderState.CurrentLeaderAddress;
+        var callInvoker = _channelPool.GetCallInvoker(leaderAddress);
+        var host = GetHost(leaderAddress);
+        return callInvoker.AsyncDuplexStreamingCall(context.Method, host, context.Options);
+    }
+
+    private bool TryProcessLeaderDiscoveryFailure<TRequest, TResponse>(
+        RpcException exception,
+        ClientInterceptorContext<TRequest, TResponse> context,
+        string previousLeaderAddress)
+        where TRequest : class
+        where TResponse : class
+    {
+        if (TryExtractLeaderAddress(exception, out var discoveredLeader))
+        {
+            _logger.LogInformation(
+                "Redirecting gRPC call {Method} from {OldLeader} to {NewLeader} after leader mismatch.",
+                context.Method.FullName,
+                previousLeaderAddress,
+                discoveredLeader);
+            _leaderState.UpdateLeader(discoveredLeader);
+            return true;
+        }
+
+        if (IsRetryableLeaderDiscoveryFailure(exception))
+        {
+            _logger.LogWarning(
+                "gRPC call {Method} to {Address} failed with status {StatusCode}. Trying next seed node.",
+                context.Method.FullName,
+                previousLeaderAddress,
+                exception.StatusCode);
+            _leaderState.InvalidateAndGetNextSeedNode();
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool IsRetryableLeaderDiscoveryFailure(RpcException exception)
     {
         if (exception.StatusCode == StatusCode.Unavailable)
@@ -157,31 +209,26 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
             return false;
         }
 
-        var detail = exception.Status.Detail?.Trim();
-        if (string.IsNullOrWhiteSpace(detail))
+        var retryEntry = exception.Trailers.FirstOrDefault(t => t.Key == RetryLeaderDiscoveryMetadataKey);
+        if (retryEntry is null || !bool.TryParse(retryEntry.Value, out var trailerRetry))
         {
             return false;
         }
 
-        if (detail.Equals("No Leader", StringComparison.OrdinalIgnoreCase))
+        shouldRetry = trailerRetry;
+
+        var leaderEntry = exception.Trailers.FirstOrDefault(t => t.Key == LeaderAddressMetadataKey);
+        if (leaderEntry is not null && !string.IsNullOrWhiteSpace(leaderEntry.Value))
         {
-            shouldRetry = true;
-            return true;
+            var candidateLeader = leaderEntry.Value.TrimEnd('/');
+            if (Uri.TryCreate(candidateLeader, UriKind.Absolute, out var leaderUri)
+                && (leaderUri.Scheme == Uri.UriSchemeHttp || leaderUri.Scheme == Uri.UriSchemeHttps))
+            {
+                leaderAddress = candidateLeader;
+            }
         }
 
-        if (!Uri.TryCreate(detail, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-        {
-            return false;
-        }
-
-        leaderAddress = detail.TrimEnd('/');
-        shouldRetry = true;
-        return true;
+        return shouldRetry;
     }
 
     private static string GetHost(string address)

@@ -142,6 +142,7 @@ public class ChubbyRpcProxy
     }
 
 
+    // Add a new field , IsCacheable.
     [Require(Permission.Read)]
     public Task<ContentAndStat> GetContentsAndStat(ClientHandle clientHandle)
     {

@@ -5,6 +5,9 @@ using Chubby.Core.Rpc;
 public class RequestValidationInterceptor : Interceptor
 {
     private const string CreateSessionMethodSuffix = "/CreateSession";
+    public const string EpochMetadataKey = "current-epoch";
+    public const string LeaderAddressMetadataKey = "leader-address";
+    public const string RetryLeaderDiscoveryMetadataKey = "retry-leader-discovery";
     private readonly ChubbyRpcProxy _chubbyRpcProxy;
     private readonly ChubbyRaftOrchestrator _orchestrator;
 
@@ -49,7 +52,14 @@ public class RequestValidationInterceptor : Interceptor
     {
         if (!_chubbyRpcProxy.IsLeader())
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, _chubbyRpcProxy.GetLeaderAddress() ?? "No Leader"));
+            var leaderAddress = _chubbyRpcProxy.GetLeaderAddress();
+            throw new RpcException(
+                new Status(StatusCode.FailedPrecondition, "Leader mismatch"),
+                new Metadata
+                {
+                    { RetryLeaderDiscoveryMetadataKey, bool.TrueString },
+                    { LeaderAddressMetadataKey, leaderAddress ?? string.Empty }
+                });
         }
     }
 
@@ -74,7 +84,12 @@ public class RequestValidationInterceptor : Interceptor
 
         if (!IsValidEpoch(epoch))
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, "Epoch mismatch"));
+            throw new RpcException(
+                new Status(StatusCode.FailedPrecondition, "Epoch mismatch"),
+                new Metadata
+                {
+                    { EpochMetadataKey, _chubbyRpcProxy.CurrentEpochNumber().ToString() }
+                });
         }
     }
 

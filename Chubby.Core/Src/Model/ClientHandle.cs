@@ -8,7 +8,7 @@ namespace Chubby.Core.Model;
 // from clients after a failover, this would mean two types of client handle , one what we return and 
 // another what they will send on handle requests....
 // maybe, I will change my thinking and manage my way through this only..
-public class ClientHandle
+public sealed class ClientHandle
 {
     public required string HandleId { get; init; }
     public required string Path { get; init; }

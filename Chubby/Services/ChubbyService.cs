@@ -52,17 +52,54 @@ namespace Chubby.Services
 
         private static Event ToProtoEvent(CoreEvents.Event @event)
         {
-            var eventType = @event switch
+            return @event switch
             {
-                CoreEvents.LockAcquiredEvent => EventType.LockAcquired,
-                CoreEvents.MasterFailOverEvent => EventType.MasterFailOver,
-                CoreEvents.InvalidHandleAndLockEvent => EventType.InvalidHandleAndLock,
-                CoreEvents.ConflictingLockRequestEvent => EventType.ConflictingLockRequest,
-                CoreEvents.FileContentsModifiedEvent => EventType.FileContentsModified,
-                _ => EventType.None
+                CoreEvents.LockAcquiredEvent lockAcquiredEvent => new Event
+                {
+                    LockAcquired = new Proto.LockAcquiredEvent
+                    {
+                        Path = lockAcquiredEvent.Path,
+                        InstanceNumber = lockAcquiredEvent.InstanceNumber,
+                        LockType = (Proto.LockType)lockAcquiredEvent.LockType,
+                        HandleId = lockAcquiredEvent.HandleId
+                    }
+                },
+                CoreEvents.MasterFailOverEvent masterFailOverEvent => new Event
+                {
+                    MasterFailOver = new Proto.MasterFailOverEvent
+                    {
+                        EpochNumber = masterFailOverEvent.EpochNumber
+                    }
+                },
+                CoreEvents.InvalidHandleAndLockEvent invalidHandleAndLockEvent => new Event
+                {
+                    InvalidHandleAndLock = new Proto.InvalidHandleAndLockEvent
+                    {
+                        HandleId = invalidHandleAndLockEvent.HandleId
+                    }
+                },
+                CoreEvents.ConflictingLockRequestEvent conflictingLockRequestEvent => new Event
+                {
+                    ConflictingLockRequest = new Proto.ConflictingLockRequestEvent
+                    {
+                        Path = conflictingLockRequestEvent.Path,
+                        InstanceNumber = conflictingLockRequestEvent.InstanceNumber,
+                        LockType = (Proto.LockType)conflictingLockRequestEvent.LockType,
+                        HandleId = conflictingLockRequestEvent.HandleId
+                    }
+                },
+                CoreEvents.FileContentsModifiedEvent fileContentsModifiedEvent => new Event
+                {
+                    FileContentsModified = new Proto.FileContentsModifiedEvent
+                    {
+                        Path = fileContentsModifiedEvent.Path,
+                        InstanceNumber = fileContentsModifiedEvent.InstanceNumber,
+                        HandleId = fileContentsModifiedEvent.HandleId,
+                        ContentGenerationNumber = fileContentsModifiedEvent.ContentGenerationNumber
+                    }
+                },
+                _ => throw new ArgumentOutOfRangeException(nameof(@event), @event.GetType(), "Unsupported event type.")
             };
-
-            return new Event { Type = eventType };
         }
 
         public ChubbyService(ChubbyRpcProxy chubbyRpcProxy)
@@ -170,7 +207,8 @@ namespace Chubby.Services
                     LockGenerationNumber = response.Stat.LockGenerationNumber,
                     AclGenerationNumber = response.Stat.AclGenerationNumber,
                     ContentLength = response.Stat.ContentLength
-                }
+                },
+                IsCacheable = false
             };
         }
 
@@ -187,7 +225,8 @@ namespace Chubby.Services
                     LockGenerationNumber = response.LockGenerationNumber,
                     AclGenerationNumber = response.AclGenerationNumber,
                     ContentLength = response.ContentLength
-                }
+                },
+                IsCacheable = false
             };
         }
 

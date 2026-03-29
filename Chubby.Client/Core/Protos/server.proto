@@ -55,8 +55,43 @@ enum EventType {
     EVENT_TYPE_FILE_CONTENTS_MODIFIED = 5;
 }
 
+message LockAcquiredEvent {
+    string path = 1;
+    int64 instance_number = 2;
+    LockType lock_type = 3;
+    string handle_id = 4;
+}
+
+message MasterFailOverEvent {
+    int32 epoch_number = 1;
+}
+
+message InvalidHandleAndLockEvent {
+    string handle_id = 1;
+}
+
+message ConflictingLockRequestEvent {
+    string path = 1;
+    int64 instance_number = 2;
+    LockType lock_type = 3;
+    string handle_id = 4;
+}
+
+message FileContentsModifiedEvent {
+    string path = 1;
+    int64 instance_number = 2;
+    string handle_id = 3;
+    int64 content_generation_number = 4;
+}
+
 message Event {
-    EventType type = 1;
+    oneof payload {
+        LockAcquiredEvent lock_acquired = 1;
+        MasterFailOverEvent master_fail_over = 2;
+        InvalidHandleAndLockEvent invalid_handle_and_lock = 3;
+        ConflictingLockRequestEvent conflicting_lock_request = 4;
+        FileContentsModifiedEvent file_contents_modified = 5;
+    }
 }
 
 
@@ -228,6 +263,7 @@ message Stat {
 message GetContentsAndStatResponse {
     bytes content = 1;
     Stat stat = 2;
+    bool is_cacheable = 3;
 }
 
 message GetStatRequest {
@@ -236,6 +272,7 @@ message GetStatRequest {
 
 message GetStatResponse {
     Stat stat = 1;
+    bool is_cacheable = 2;
 }
 
 message ReadDirRequest {

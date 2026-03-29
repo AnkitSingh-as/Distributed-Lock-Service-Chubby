@@ -31,18 +31,28 @@ public static class ChubbyClientServiceCollectionExtensions
 
         services.TryAddSingleton(new LeaderEndpointState(normalizedAddresses));
         services.TryAddSingleton<LeaderChannelPool>();
+        services.TryAddSingleton<ClientSessionState>();
+        services.TryAddSingleton<EpochHeaderInterceptor>();
         services.TryAddSingleton<LeaderDiscoveryInterceptor>();
+        services.TryAddSingleton<EpochRetryInterceptor>();
 
         services.TryAddSingleton(sp =>
         {
             var state = sp.GetRequiredService<LeaderEndpointState>();
             var pool = sp.GetRequiredService<LeaderChannelPool>();
-            var interceptor = sp.GetRequiredService<LeaderDiscoveryInterceptor>();
-            var invoker = pool.GetCallInvoker(state.CurrentLeaderAddress).Intercept(interceptor);
+            var epochHeaderInterceptor = sp.GetRequiredService<EpochHeaderInterceptor>();
+            var leaderDiscoveryInterceptor = sp.GetRequiredService<LeaderDiscoveryInterceptor>();
+            var epochRetryInterceptor = sp.GetRequiredService<EpochRetryInterceptor>();
+            var invoker = pool
+                .GetCallInvoker(state.CurrentLeaderAddress)
+                .Intercept(epochHeaderInterceptor)
+                .Intercept(leaderDiscoveryInterceptor)
+                .Intercept(epochRetryInterceptor);
             return new Server.ServerClient(invoker);
         });
 
-        services.TryAddSingleton<IChubby, ChubbyGrpcClientAdapter>();
+        services.TryAddSingleton<ChubbyGrpcClientAdapter>();
+        services.TryAddSingleton<IChubby, ChubbyClient>();
         return services;
     }
 

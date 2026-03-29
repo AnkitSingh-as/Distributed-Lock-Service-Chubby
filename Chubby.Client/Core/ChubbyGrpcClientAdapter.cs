@@ -2,7 +2,7 @@ using System.Threading;
 using Chubby.Protos;
 using Grpc.Core;
 
-internal sealed class ChubbyGrpcClientAdapter : IChubby
+public sealed class ChubbyGrpcClientAdapter : IChubby
 {
     private readonly Server.ServerClient _grpcClient;
 

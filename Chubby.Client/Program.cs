@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddChubbyClient(builder.Configuration);
@@ -10,7 +11,7 @@ builder.Services.AddSingleton<ExampleService>();
 using var host = builder.Build();
 
 var exampleService = host.Services.GetRequiredService<ExampleService>();
-var clientOptions = host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ExampleClientOptions>>();
+var clientOptions = host.Services.GetRequiredService<IOptions<ExampleClientOptions>>();
 
 Console.WriteLine($"Client name: {clientOptions.Value.Name}");
 Console.WriteLine("Press Enter to call ExampleService.DoSomeProcessing(). Type 'q' and press Enter to quit.");
@@ -23,7 +24,7 @@ while (true)
         break;
     }
 
-    if (!string.IsNullOrEmpty(input))
+    if (!string.IsNullOrEmpty(input))      
     {
         Console.WriteLine("Press Enter to run the command, or type 'q' to quit.");
         continue;

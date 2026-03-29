@@ -91,7 +91,7 @@ public partial class ChubbyCore
 
     public Session GetSession(string sessionId)
     {
-        return sessionIdToSessionMapping[sessionId];
+        return sessionIdToSessionMapping.TryGetValue(sessionId, out var session) ? session : throw new InvalidOperationException($"Session '{sessionId}' not found.")   ;
     }
 
     public void AddHandleToSession(Handle handle)
