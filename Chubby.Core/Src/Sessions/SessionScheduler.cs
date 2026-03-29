@@ -5,12 +5,15 @@ namespace Chubby.Core.Sessions;
 
 public class SessionScheduler : IDisposable
 {
-    private readonly SortedSet<Session> _set = new(new SessionExpiryComparer());
+    private readonly SortedSet<SessionExpiryEntry> _set = new(new SessionExpiryComparer());
+    private readonly Dictionary<string, SessionExpiryEntry> _entriesBySessionId = new(StringComparer.Ordinal);
     private readonly object _lock = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly AutoResetEvent _signal = new(false);
     private readonly ChubbyConfig _config;
     private readonly ChubbyRpcProxy _proxy;
+    private Task? _schedulerTask;
+    private int _started;
     public SessionScheduler(ChubbyCore chubby, ChubbyRpcProxy proxy, ChubbyConfig config)
     {
         _proxy = proxy;
@@ -20,32 +23,35 @@ public class SessionScheduler : IDisposable
 
     public void Start()
     {
-        Task.Factory.StartNew(RunSchedulerLoop, _cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        if (Interlocked.Exchange(ref _started, 1) == 1)
+        {
+            return;
+        }
+
+        _schedulerTask = Task.Run(RunSchedulerLoop, _cts.Token);
     }
 
     private async Task RunSchedulerLoop()
     {
         while (!_cts.IsCancellationRequested)
         {
-
-            Session? sessionToExpire = null;
+            string? sessionIdToExpire = null;
             int waitTimeout = Timeout.Infinite;
 
             lock (_lock)
             {
-                if (_set.Min is Session nextSession)
+                if (_set.Min is SessionExpiryEntry nextEntry)
                 {
-                    sessionToExpire = nextSession;
-                    var expiryTime = new DateTime(nextSession.LastActivityTicks, DateTimeKind.Utc).AddMilliseconds(_config.SessionExpiryTimeout);
-                    var timeUntilExpiry = expiryTime - DateTime.UtcNow;
+                    sessionIdToExpire = nextEntry.SessionId;
+                    var timeUntilExpiry = TimeSpan.FromTicks(nextEntry.ExpiryTicks - DateTime.UtcNow.Ticks);
                     waitTimeout = timeUntilExpiry > TimeSpan.Zero ? (int)timeUntilExpiry.TotalMilliseconds : 0;
                 }
             }
 
-            if (waitTimeout == 0 && sessionToExpire != null)
+            if (waitTimeout == 0 && sessionIdToExpire != null)
             {
-                Console.WriteLine($"Session {sessionToExpire.SessionId} expired. Proposing closure via Raft command...");
-                await _proxy.CloseSession(sessionToExpire.SessionId);
+                Console.WriteLine($"Session {sessionIdToExpire} expired. Proposing closure via Raft command, which will notify the scheduler on completion to clean this session");
+                await _proxy.CloseSession(sessionIdToExpire);
             }
             else
             {
@@ -56,16 +62,22 @@ public class SessionScheduler : IDisposable
 
     private void OnSessionClosed(Session session)
     {
-        Remove(session);
+        Remove(session.SessionId);
     }
 
     // on handle closed add to tracking to expiry.
     public void AddOrUpdate(Session session)
     {
+        var entry = CreateEntry(session);
         lock (_lock)
         {
-            _set.Remove(session);
-            _set.Add(session);
+            if (_entriesBySessionId.TryGetValue(session.SessionId, out var existingEntry))
+            {
+                _set.Remove(existingEntry);
+            }
+
+            _entriesBySessionId[session.SessionId] = entry;
+            _set.Add(entry);
         }
         _signal.Set();
     }
@@ -76,8 +88,14 @@ public class SessionScheduler : IDisposable
         {
             foreach (var session in sessions)
             {
-                _set.Remove(session);
-                _set.Add(session);
+                var entry = CreateEntry(session);
+                if (_entriesBySessionId.TryGetValue(session.SessionId, out var existingEntry))
+                {
+                    _set.Remove(existingEntry);
+                }
+
+                _entriesBySessionId[session.SessionId] = entry;
+                _set.Add(entry);
             }
         }
         _signal.Set();
@@ -86,18 +104,31 @@ public class SessionScheduler : IDisposable
 
     public void Remove(Session session)
     {
+        Remove(session.SessionId);
+    }
+
+    public void Remove(string sessionId)
+    {
         lock (_lock)
         {
-            _set.Remove(session);
+            if (_entriesBySessionId.TryGetValue(sessionId, out var entry))
+            {
+                _set.Remove(entry);
+                _entriesBySessionId.Remove(sessionId);
+            }
         }
     }
 
     public void Stop()
     {
         // maybe the leader is not able to communicate with others, but its in memory state is intact, so clear the set for safety purposes.
-        _set.Clear();
-        _cts.Cancel();
-        _signal.Set();
+        lock (_lock)
+        {
+            _set.Clear();
+            _entriesBySessionId.Clear();
+            _cts.Cancel();
+            _signal.Set();
+        }
     }
 
     public void Dispose()
@@ -106,5 +137,13 @@ public class SessionScheduler : IDisposable
         _signal.Set();
         _cts.Dispose();
         _signal.Dispose();
+    }
+
+    private SessionExpiryEntry CreateEntry(Session session)
+    {
+        var expiryTicks = new DateTime(session.LastActivityTicks, DateTimeKind.Utc)
+            .AddMilliseconds(_config.SessionExpiryTimeout)
+            .Ticks;
+        return new SessionExpiryEntry(session.SessionId, expiryTicks);
     }
 }
