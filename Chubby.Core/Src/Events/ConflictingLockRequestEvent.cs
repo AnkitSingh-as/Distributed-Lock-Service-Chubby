@@ -8,5 +8,4 @@ public class ConflictingLockRequestEvent : Event
     public required string Path { get; init; }
     public long InstanceNumber { get; init; }
     public LockType LockType { get; init; }
-    public required string HandleId { get; init; }
 }

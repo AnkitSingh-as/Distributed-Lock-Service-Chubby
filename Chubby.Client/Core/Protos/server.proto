@@ -74,14 +74,12 @@ message ConflictingLockRequestEvent {
     string path = 1;
     int64 instance_number = 2;
     LockType lock_type = 3;
-    string handle_id = 4;
 }
 
 message FileContentsModifiedEvent {
     string path = 1;
     int64 instance_number = 2;
-    string handle_id = 3;
-    int64 content_generation_number = 4;
+    int64 content_generation_number = 3;
 }
 
 message Event {
@@ -162,6 +160,7 @@ message CreateSessionResponse {
 message KeepAliveRequest {
   // The client's session identifier.
   string session_id = 1;
+  int64 acked_through_sequence = 2;
 }
 
 // Response for a keep-alive.
@@ -173,8 +172,13 @@ message KeepAliveResponse {
     }
 }
 
+message DeliveredEvent {
+    int64 sequence_number = 1;
+    Event event = 2;
+}
+
 message EventAvailable {
-    repeated Event events = 1;
+    repeated DeliveredEvent events = 1;
 }
 
 message LeaseAboutToExpire {

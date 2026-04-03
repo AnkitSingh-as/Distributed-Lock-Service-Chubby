@@ -1,15 +1,18 @@
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Microsoft.Extensions.Logging;
 
 internal sealed class EpochHeaderInterceptor : Interceptor
 {
     private const string EpochHeaderKey = "epoch";
     private const string CreateSessionMethodSuffix = "/CreateSession";
     private readonly ClientSessionState _sessionState;
+    private readonly ILogger<EpochHeaderInterceptor> _logger;
 
-    public EpochHeaderInterceptor(ClientSessionState sessionState)
+    public EpochHeaderInterceptor(ClientSessionState sessionState, ILogger<EpochHeaderInterceptor> logger)
     {
         _sessionState = sessionState;
+        _logger = logger;
     }
 
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
@@ -47,6 +50,7 @@ internal sealed class EpochHeaderInterceptor : Interceptor
         if (!headers.Any(entry => entry.Key == EpochHeaderKey))
         {
             headers.Add(EpochHeaderKey, currentEpoch.ToString());
+            _logger.LogDebug("Added epoch header {Epoch} to gRPC method {Method}.", currentEpoch, context.Method.FullName);
         }
 
         var options = context.Options.WithHeaders(headers);

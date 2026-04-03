@@ -9,15 +9,21 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
     private const string RetryLeaderDiscoveryMetadataKey = "retry-leader-discovery";
     private readonly LeaderEndpointState _leaderState;
     private readonly LeaderChannelPool _channelPool;
+    private readonly EpochHeaderInterceptor _epochHeaderInterceptor;
+    private readonly EpochRetryInterceptor _epochRetryInterceptor;
     private readonly ILogger<LeaderDiscoveryInterceptor> _logger;
 
     public LeaderDiscoveryInterceptor(
         LeaderEndpointState leaderState,
         LeaderChannelPool channelPool,
+        EpochHeaderInterceptor epochHeaderInterceptor,
+        EpochRetryInterceptor epochRetryInterceptor,
         ILogger<LeaderDiscoveryInterceptor> logger)
     {
         _leaderState = leaderState;
         _channelPool = channelPool;
+        _epochHeaderInterceptor = epochHeaderInterceptor;
+        _epochRetryInterceptor = epochRetryInterceptor;
         _logger = logger;
     }
 
@@ -79,7 +85,7 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             var leaderAddress = _leaderState.CurrentLeaderAddress;
-            var callInvoker = _channelPool.GetCallInvoker(leaderAddress);
+            var callInvoker = CreateRetryInvoker(leaderAddress);
             var host = GetHost(leaderAddress);
             var options = context.Options;
             
@@ -142,9 +148,17 @@ internal sealed class LeaderDiscoveryInterceptor : Interceptor
         where TResponse : class
     {
         var leaderAddress = _leaderState.CurrentLeaderAddress;
-        var callInvoker = _channelPool.GetCallInvoker(leaderAddress);
+        var callInvoker = CreateRetryInvoker(leaderAddress);
         var host = GetHost(leaderAddress);
         return callInvoker.AsyncDuplexStreamingCall(context.Method, host, context.Options);
+    }
+
+    private CallInvoker CreateRetryInvoker(string leaderAddress)
+    {
+        return _channelPool
+            .GetCallInvoker(leaderAddress)
+            .Intercept(_epochHeaderInterceptor)
+            .Intercept(_epochRetryInterceptor);
     }
 
     private bool TryProcessLeaderDiscoveryFailure<TRequest, TResponse>(

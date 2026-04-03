@@ -79,6 +79,12 @@ public class ChubbyRpcProxy
 
     public async Task<OpenResponse> Open(OpenRequest request)
     {
+        _logger.LogInformation(
+            "Open requested for session {SessionId}, path {Path}, intent {Intent}, create={Create}.",
+            request.SessionId,
+            request.Path,
+            request.Intent,
+            request.Create is not null);
         bool nodeCreated = false;
         if (request.Create is not null)
         {
@@ -112,12 +118,19 @@ public class ChubbyRpcProxy
 
         var response = CreateHandleForOpen(request);
         response.Created = nodeCreated;
+        _logger.LogInformation(
+            "Open completed for session {SessionId}, path {Path}. HandleId={HandleId}, created={Created}.",
+            request.SessionId,
+            request.Path,
+            response.Handle.HandleId,
+            nodeCreated);
         return response;
     }
 
     public async Task<(string sessionId, int epochNumber)> CreateSession(Client client)
     {
         var sessionId = Guid.NewGuid().ToString();
+        _logger.LogInformation("Creating session {SessionId} for client {ClientName}.", sessionId, client.Name);
         var createSessionCmd = new CreateSessionCommand
         {
             SessionId = sessionId,
@@ -131,6 +144,11 @@ public class ChubbyRpcProxy
         var session = _chubby.GetSession(sessionId);
         // The session is new, so its activity is current. Add it to the scheduler.
         SessionScheduler.AddOrUpdate(session);
+        _logger.LogInformation(
+            "Session {SessionId} created for client {ClientName} at epoch {EpochNumber}.",
+            sessionId,
+            client.Name,
+            CurrentEpochNumber());
         return (sessionId, CurrentEpochNumber());
     }
 
@@ -148,11 +166,17 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
-
+        var isCacheable = !_chubby.GetAllSessions().Any(s => s.IsWaitingForContentsModifiedAcknowledgmentEvent(node.name));
+        _logger.LogDebug(
+            "GetContentsAndStat for handle {HandleId} on path {Path}. Cacheable={IsCacheable}.",
+            clientHandle.HandleId,
+            node.name,
+            isCacheable);
         var result = new ContentAndStat()
         {
             Content = node.content,
-            Stat = node.GetStat()
+            Stat = node.GetStat(),
+            IsCacheable = isCacheable,
         };
         return Task.FromResult(result);
     }
@@ -162,7 +186,14 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
-        return Task.FromResult(node.GetStat());
+        var stat = node.GetStat();
+        stat.IsCacheable = !_chubby.GetAllSessions().Any(s => s.IsWaitingForContentsModifiedAcknowledgmentEvent(node.name));
+        _logger.LogDebug(
+            "GetStat for handle {HandleId} on path {Path}. Cacheable={IsCacheable}.",
+            clientHandle.HandleId,
+            node.name,
+            stat.IsCacheable);
+        return Task.FromResult(stat);
     }
 
     [Require(Permission.Read)]
@@ -179,6 +210,11 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
+        _logger.LogInformation(
+            "SetContents requested for handle {HandleId} on path {Path} with expected generation {ContentGenerationNumber}.",
+            clientHandle.HandleId,
+            node.name,
+            contentGenerationNumber);
 
         // ContentGenerationNumber (Optimistic Concurrency / CAS) ---
         // The contentGenerationNumber is passed down into the command for the state machine.
@@ -194,7 +230,26 @@ public class ChubbyRpcProxy
         };
         var commandBytes = JsonSerializer.SerializeToUtf8Bytes(setContentsCmd as BaseCommand);
         await _nodeEnvelope.WriteAsync(commandBytes);
-        var session = _chubby.GetSession(clientHandle.SessionId);
+        var _ = _chubby.GetSession(clientHandle.SessionId);
+        _chubby.TryGetNode(node.name, out (Node currentNode, Status status) currentRecord);
+        // find every session that may have cached this node and send invalidation to every session.
+        // expect a keep alive to say that invalidations received.
+        var sessionsToNotify = _chubby.GetAllSessions()
+            .Where(s => s.Handles.Any(h => h.Value.Path == node.name))
+            .ToList();
+
+        var deliveredEvent = new FileContentsModifiedEvent
+        {
+            Path = currentRecord.currentNode.name,
+            InstanceNumber = currentRecord.currentNode.Instance,
+            ContentGenerationNumber = currentRecord.currentNode.ContentGenerationNumber,
+        };
+
+        await Task.WhenAll(sessionsToNotify.Select(s => s.EnqueueEventAsync(deliveredEvent)));
+        _logger.LogInformation(
+            "SetContents completed for path {Path}. Notified {SessionCount} session(s) about content modification.",
+            node.name,
+            sessionsToNotify.Count);
     }
 
     [Require(Permission.ChangeAcl)]
@@ -219,10 +274,16 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
+        _logger.LogInformation(
+            "AcquireLock requested for handle {HandleId} on path {Path} with lock type {LockType}.",
+            clientHandle.HandleId,
+            node.name,
+            @lock);
         var acquireLockCmd = new AcquireLockCommand
         {
             Lock = new Lock()
             {
+                HandleId = clientHandle.HandleId,
                 Path = node.name,
                 Instance = node.Instance,
                 LockType = @lock,
@@ -231,9 +292,37 @@ public class ChubbyRpcProxy
         };
         var commandBytes = JsonSerializer.SerializeToUtf8Bytes(acquireLockCmd as BaseCommand);
         var result = await _nodeEnvelope.WriteAsync(commandBytes);
+        _chubby.TryGetNode(node.name, out (Node currentNode, Status status) record);
+        var currentNode = record.currentNode;
         if (result is not true)
         {
+            var existingLocks = _chubby.nodePathToLockMapping.GetOrAdd(currentNode.name, _ => new List<Lock>());
+            var sessionsWhichHoldLocks = _chubby.GetAllSessions().Where(s => existingLocks.Any(l => l.SessionId == s.SessionId)).ToList();
+            var tasks = sessionsWhichHoldLocks.Select(s => s.EnqueueEventAsync(new ConflictingLockRequestEvent { Path = currentNode.name, InstanceNumber = currentNode.LockGenerationNumber, LockType = @lock }));
+            await Task.WhenAll(tasks);
+            _logger.LogWarning(
+                "AcquireLock failed for handle {HandleId} on path {Path}. Conflicting sessions notified: {SessionCount}.",
+                clientHandle.HandleId,
+                currentNode.name,
+                sessionsWhichHoldLocks.Count);
             throw new InvalidOperationException("Failed to acquire lock. A conflicting lock may exist.");
+        }
+        else
+        {
+            var interestedSessions = _chubby.GetAllSessions().Where(s => s.Handles.Any(h => h.Value.Path == currentNode.name)).ToList();
+            var tasks = interestedSessions.Select(s => s.EnqueueEventAsync(new LockAcquiredEvent
+            {
+                Path = currentNode.name,
+                InstanceNumber = currentNode.LockGenerationNumber,
+                LockType = @lock,
+                HandleId = clientHandle.HandleId,
+            }));
+            await Task.WhenAll(tasks);
+            _logger.LogInformation(
+                "AcquireLock succeeded for handle {HandleId} on path {Path}. Interested sessions notified: {SessionCount}.",
+                clientHandle.HandleId,
+                currentNode.name,
+                interestedSessions.Count);
         }
     }
 
@@ -242,8 +331,14 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
+        _logger.LogInformation(
+            "ReleaseLock requested for handle {HandleId} on path {Path} with lock type {LockType}.",
+            clientHandle.HandleId,
+            node.name,
+            @lock);
         var lockInstance = new Lock
         {
+            HandleId = clientHandle.HandleId,
             Path = clientHandle.Path,
             Instance = clientHandle.InstanceNumber,
             LockType = @lock,
@@ -258,6 +353,10 @@ public class ChubbyRpcProxy
         // Release is idempotent. We submit the command but don't need to fail if the lock
         // was already gone. The state machine will handle this
         await _nodeEnvelope.WriteAsync(commandBytes);
+        _logger.LogInformation(
+            "ReleaseLock completed for handle {HandleId} on path {Path}.",
+            clientHandle.HandleId,
+            clientHandle.Path);
     }
 
     [Require(Permission.Write)]
@@ -280,6 +379,7 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
+        _logger.LogDebug("GetSequencer for handle {HandleId} on path {Path}.", clientHandle.HandleId, node.name);
         return await Task.FromResult(_chubby.GetNodeSequencer(node));
     }
 
@@ -288,15 +388,25 @@ public class ChubbyRpcProxy
     {
         CheckPermission(clientHandle.Permission);
         var (node, _) = ValidateHandleAndGetNodeAndHandle(clientHandle);
+        _logger.LogDebug("CheckSequencer for handle {HandleId} on path {Path}.", clientHandle.HandleId, node.name);
         return await Task.FromResult(_chubby.CheckNodeSequencer(node, sequencer));
     }
 
-    public async Task<KeepAliveResponse> KeepAlive(string sessionId)
+    public async Task<KeepAliveResponse> KeepAlive(string sessionId, long ackedThroughSequence, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation(
+            "KeepAlive requested for session {SessionId} with ackedThroughSequence {AckedThroughSequence}.",
+            sessionId,
+            ackedThroughSequence);
         var session = _chubby.GetSession(sessionId);
         session.UpdateLastActivity();
         SessionScheduler.AddOrUpdate(session);
-        return await session.KeepAlive();
+        var response = await session.KeepAlive(ackedThroughSequence, cancellationToken);
+        _logger.LogInformation(
+            "KeepAlive completed for session {SessionId} with response type {ResponseType}.",
+            sessionId,
+            response.GetType().Name);
+        return response;
     }
 
     private OpenResponse CreateHandleForOpen(OpenRequest request)
@@ -322,6 +432,12 @@ public class ChubbyRpcProxy
         var checkDigit = _checkDigitCalculator.CalculateCheckDigit(responseHandle);
         responseHandle.CheckDigit = checkDigit;
         _chubby.AddHandleToSession(handle);
+        _logger.LogDebug(
+            "Created handle {HandleId} for session {SessionId} on path {Path} with subscribed events {SubscribedEvents}.",
+            responseHandle.HandleId,
+            request.SessionId,
+            request.Path,
+            request.SubscribedEventsMask);
 
         // Any activity that creates a handle should be considered session activity.
         var session = _chubby.GetSession(request.SessionId);
@@ -405,7 +521,7 @@ public class ChubbyRpcProxy
             return false;
         }
 
-        await session.channel.Writer.WriteAsync(@event);
+        await session.EnqueueEventAsync(@event);
         return true;
     }
 
@@ -425,11 +541,12 @@ public class ChubbyRpcProxy
     public async Task ProcessFailOver()
     {
         var sessions = _chubby.GetAllSessions();
+        _logger.LogWarning("Processing failover for {SessionCount} session(s).", sessions.Count());
         foreach (var session in sessions)
         {
             // this because last activity is not part of state machine, so we need to update it here, to prevent sessions from being expired immediately after failover. 
             session.UpdateLastActivity();
-            await session.channel.Writer.WriteAsync(new MasterFailOverEvent { EpochNumber = CurrentEpochNumber() - 1 });
+            await session.EnqueueEventAsync(new MasterFailOverEvent { EpochNumber = CurrentEpochNumber() - 1 });
         }
         SessionScheduler.AddOrUpdateBulk(sessions);
 

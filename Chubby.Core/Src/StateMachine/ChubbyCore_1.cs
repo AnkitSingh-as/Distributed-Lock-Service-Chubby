@@ -3,12 +3,7 @@ using System.Text.Json;
 using Raft;
 using Chubby.Core.Model;
 using Chubby.Core.Rpc;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Chubby.Core.Sessions;
-using System.Linq.Expressions;
-
 namespace Chubby.Core.StateMachine;
 // should I create session tracker for every session that is created
 // wait for 1 minute, using task.delay and check the condition
@@ -29,26 +24,31 @@ public partial class ChubbyCore : IStateMachine
     public readonly ConcurrentDictionary<string, List<Lock>> nodePathToLockMapping = new();
     public readonly ConcurrentDictionary<Node, List<string>> nodeToSessionMapping = new();
     private readonly ILogger<ChubbyCore> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
-    public ChubbyCore(ILogger<ChubbyCore> logger)
+    public ChubbyCore(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<ChubbyCore>();
+        _loggerFactory = loggerFactory;
     }
 
     public Session CreateSession(string sessionId, int leaseTimeout, Client client, int threshold)
     {
-        var session = new Session(sessionId, leaseTimeout, client, threshold);
+        var session = new Session(sessionId, leaseTimeout, client, _loggerFactory.CreateLogger<Session>(), threshold);
         if (sessionIdToSessionMapping.TryAdd(sessionId, session))
         {
+            _logger.LogInformation("Created new session {SessionId} for client {ClientName}.", sessionId, client.Name);
             return session;
         }
         // This can happen if a command is retried after a timeout but before the response was received. It's safe to return the existing session.
+        _logger.LogWarning("Session {SessionId} already existed. Returning existing session.", sessionId);
         return sessionIdToSessionMapping[sessionId];
     }
     public void CloseSession(string sessionId)
     {
         if (sessionIdToSessionMapping.TryRemove(sessionId, out var session))
         {
+            _logger.LogInformation("Closing session {SessionId}.", sessionId);
             // Cancel any pending operations for this session, like the KeepAlive gRPC call, to release resources.
             session.cts.Cancel();
 
@@ -211,9 +211,16 @@ public partial class ChubbyCore : IStateMachine
     {
         var existingLocksOnNode = nodePathToLockMapping.GetOrAdd(cmd.Lock.Path, _ => new List<Lock>());
 
-        if (existingLocksOnNode.Any(l => l.SessionId == cmd.Lock.SessionId))
+        var existingLockForHandle = existingLocksOnNode.FirstOrDefault(l => l.HandleId == cmd.Lock.HandleId);
+        if (existingLockForHandle is not null)
         {
-            // Session already holds a lock on this node.
+            // Re-acquiring the same lock on the same handle is idempotent.
+            if (existingLockForHandle.LockType == cmd.Lock.LockType
+                && existingLockForHandle.Instance == cmd.Lock.Instance)
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -251,7 +258,7 @@ public partial class ChubbyCore : IStateMachine
         if (nodePathToLockMapping.TryGetValue(cmd.Lock.Path, out var existingLocksOnNode))
         {
             var lockToRemove = existingLocksOnNode.FirstOrDefault(l =>
-                l.SessionId == cmd.Lock.SessionId &&
+                l.HandleId == cmd.Lock.HandleId &&
                 l.LockType == cmd.Lock.LockType &&
                 l.Instance == cmd.Lock.Instance);
 

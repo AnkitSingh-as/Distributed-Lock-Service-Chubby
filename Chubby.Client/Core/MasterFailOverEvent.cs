@@ -3,7 +3,6 @@ using Proto = Chubby.Protos;
 public sealed class MasterFailOverEvent : IClientEvent
 {
     public int EpochNumber { get; }
-
     public MasterFailOverEvent(Proto.MasterFailOverEvent @event)
     {
         EpochNumber = @event.EpochNumber;
@@ -11,6 +10,6 @@ public sealed class MasterFailOverEvent : IClientEvent
 
     public void Apply(ClientCacheState state)
     {
-        state.InvalidateAllForFailover(EpochNumber);
+        state.FlushCachesForFailover();
     }
 }

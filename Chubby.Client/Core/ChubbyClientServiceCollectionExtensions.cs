@@ -51,7 +51,6 @@ public static class ChubbyClientServiceCollectionExtensions
             return new Server.ServerClient(invoker);
         });
 
-        services.TryAddSingleton<ChubbyGrpcClientAdapter>();
         services.TryAddSingleton<IChubby, ChubbyClient>();
         return services;
     }

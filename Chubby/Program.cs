@@ -72,7 +72,7 @@ internal class Program
 
         builder.Host.UseSerilog();
         // TODO: Better handle of creation and addition of chubbyRpcProxy, state machine.
-        var chubbyStateMachine = new ChubbyCore(new Logger<ChubbyCore>(loggerFactory));
+        var chubbyStateMachine = new ChubbyCore( loggerFactory);
         // TODO: expose extension methods to easily plug raft, without client bothering to implement it.
         // The NodeEnvelope will drive the state machine by calling its Apply() method for committed log entries.
         var nodeEnvelope = await NodeEnvelope.CreateAsync(new InMemoryDataSource(), raftConfig, nodeId, chubbyStateMachine, new SystemRaftClock(), loggerFactory);

@@ -19,12 +19,14 @@ public class OpenRequestComparer : IEqualityComparer<OpenRequest>
         }
 
         return true;
-
     }
 
     public int GetHashCode([DisallowNull] OpenRequest obj)
     {
-        return obj.Path.GetHashCode();
+        var hash = new HashCode();
+        hash.Add(obj.Path, StringComparer.Ordinal);
+        hash.Add(obj.Intent);
+        return hash.ToHashCode();
     }
 }
 

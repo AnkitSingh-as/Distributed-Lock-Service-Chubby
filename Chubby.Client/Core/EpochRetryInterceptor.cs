@@ -1,14 +1,17 @@
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Microsoft.Extensions.Logging;
 
 internal sealed class EpochRetryInterceptor : Interceptor
 {
     private const string EpochMetadataKey = "current-epoch";
     private readonly ClientSessionState _sessionState;
+    private readonly ILogger<EpochRetryInterceptor> _logger;
 
-    public EpochRetryInterceptor(ClientSessionState sessionState)
+    public EpochRetryInterceptor(ClientSessionState sessionState, ILogger<EpochRetryInterceptor> logger)
     {
         _sessionState = sessionState;
+        _logger = logger;
     }
 
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
@@ -36,6 +39,11 @@ internal sealed class EpochRetryInterceptor : Interceptor
                 }
                 catch (RpcException ex) when (ShouldRetryEpochMismatch(ex, out var updatedEpoch) && attempt == 0)
                 {
+                    _logger.LogWarning(
+                        "Retrying unary gRPC call after epoch mismatch. Previous epoch={PreviousEpoch}, new epoch={UpdatedEpoch}, method={Method}.",
+                        _sessionState.Epoch,
+                        updatedEpoch,
+                        context.Method.FullName);
                     _sessionState.Epoch = updatedEpoch;
                     status = ex.Status;
                     trailers = ex.Trailers;
@@ -75,6 +83,11 @@ internal sealed class EpochRetryInterceptor : Interceptor
                     return false;
                 }
 
+                _logger.LogWarning(
+                    "Retrying duplex gRPC call after epoch mismatch. Previous epoch={PreviousEpoch}, new epoch={UpdatedEpoch}, method={Method}.",
+                    _sessionState.Epoch,
+                    updatedEpoch,
+                    context.Method.FullName);
                 _sessionState.Epoch = updatedEpoch;
                 return true;
             },

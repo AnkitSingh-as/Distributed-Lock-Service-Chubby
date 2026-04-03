@@ -12,12 +12,13 @@ public class LeaseAboutToExpire : KeepAliveResponse
     public required int LeaseTimeout { get; init; }
 }
 
-public class EventAvailable : KeepAliveResponse
+public sealed class DeliveredSessionEvent
 {
-    public required List<Event> Events { get; init; }
+    public required long SequenceNumber { get; init; }
+    public required Event Event { get; init; }
 }
 
-// This means invalidate your cache for this session.
-public class CacheInvalidation : KeepAliveResponse
+public class EventAvailable : KeepAliveResponse
 {
+    public required List<DeliveredSessionEvent> Events { get; init; }
 }

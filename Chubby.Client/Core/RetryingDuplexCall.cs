@@ -119,9 +119,20 @@ internal sealed class RetryingDuplexCall<TRequest, TResponse>
 
     public TResponse Current => GetCurrentCall().ResponseStream.Current;
 
-    public Task<bool> MoveNext(CancellationToken cancellationToken)
+    public async Task<bool> MoveNext(CancellationToken cancellationToken)
     {
-        return GetCurrentCall().ResponseStream.MoveNext(cancellationToken);
+        var call = GetCurrentCall();
+        try
+        {
+            return await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException ex)
+        {
+            // Read-side failures still need to update leader/epoch state, but the caller
+            // must recreate the stream because the last request was not replayed.
+            _tryRecover(ex, call);
+            throw;
+        }
     }
 
     private sealed class RetryingClientStreamWriter : IClientStreamWriter<TRequest>

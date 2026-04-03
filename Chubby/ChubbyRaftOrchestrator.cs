@@ -6,6 +6,7 @@ public class ChubbyRaftOrchestrator
     private readonly INodeEnvelope _nodeEnvelope;
     private readonly ChubbyRpcProxy _chubbyRpcProxy;
     private volatile TaskCompletionSource<bool> _leaderReadyTcs;
+    private volatile CancellationTokenSource _leaderLifetimeCts;
 
     public ChubbyRaftOrchestrator(INodeEnvelope nodeEnvelope, ChubbyRpcProxy chubbyCore)
     {
@@ -13,6 +14,8 @@ public class ChubbyRaftOrchestrator
         _chubbyRpcProxy = chubbyCore;
         _leaderReadyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _leaderReadyTcs.TrySetResult(true);
+        _leaderLifetimeCts = new CancellationTokenSource();
+        _leaderLifetimeCts.Cancel();
         SubscribeToRaftEvents();
     }
 
@@ -27,10 +30,16 @@ public class ChubbyRaftOrchestrator
         if (newRole == Role.Leader && oldRole != Role.Leader)
         {
             Interlocked.Exchange(ref _leaderReadyTcs, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+            var previousCts = Interlocked.Exchange(ref _leaderLifetimeCts, new CancellationTokenSource());
+            previousCts.Dispose();
             _chubbyRpcProxy.StartSessionScheduler();
         }
         else
         {
+            var previousCts = Interlocked.Exchange(ref _leaderLifetimeCts, new CancellationTokenSource());
+            previousCts.Cancel();
+            previousCts.Dispose();
+            _leaderLifetimeCts.Cancel();
             _chubbyRpcProxy.StopSessionScheduler();
         }
     }
@@ -49,5 +58,10 @@ public class ChubbyRaftOrchestrator
     internal Task GetTaskToAwaitBeforeProceeding()
     {
         return _leaderReadyTcs.Task;
+    }
+
+    internal CancellationToken GetLeaderLifetimeToken()
+    {
+        return _leaderLifetimeCts.Token;
     }
 }
